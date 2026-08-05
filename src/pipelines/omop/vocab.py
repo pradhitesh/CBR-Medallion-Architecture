@@ -82,7 +82,7 @@ def copy_vocab_csvs(raw_conn: "psycopg.Connection",
         )
         raise
     
-def run(db_uri: str, 
+def load(db_uri: str, 
          vocab_folder: str, 
          schema_name: str = "shared"):
     
@@ -150,7 +150,7 @@ if __name__ == "__main__":
     # Parse the command-line arguments
     args = parser.parse_args()
 
-    run(
+    load(
         db_uri=args.db_uri,
         vocab_folder=args.vocab_folder,
         schema_name=args.schema_name
