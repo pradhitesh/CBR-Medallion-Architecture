@@ -21,7 +21,7 @@ import os
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
 import polars as pl
 from sqlalchemy import create_engine, text
@@ -213,7 +213,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    uri = os.getenv("OMOP_DB_URI")
+    uri = os.getenv("BRONZE_PROD_URI")
     if not uri:
         sys.exit("OMOP_DB_URI environment variable not set.")
 
