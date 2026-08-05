@@ -13,7 +13,6 @@
 *.config
 *.sh
 
-data
 local
 test
 assets
