@@ -28,7 +28,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from config import *
-from src.database.tables import return_tables
+from src.database.bronze.tables import return_tables
 
 LocalConcept = return_tables(schema_type='shared').LocalConcept
 

@@ -1,13 +1,16 @@
 steps:
-- name: "Schema \u2192 371d5bcbabe6"
+- name: Schema → 371d5bcbabe6
   type: alembic
   target: 371d5bcbabe6
-- name: Data migrations (2 at 371d5bc)
+- name: 'Data: load vocab'
+  type: delembic
+  target: 12d88279d63a
+- name: 'Data: load local concept'
   type: delembic
   target: f00dc4812fdc
-- name: "Schema \u2192 head"
+- name: Schema → head
   type: alembic
   target: head
-- name: "Data migrations \u2192 head"
+- name: Data migrations → head
   type: delembic
   target: head

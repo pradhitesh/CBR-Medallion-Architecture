@@ -1,10 +1,16 @@
-"""SQLAlchemy models for cohort-specific clinical tables.
+"""Builder for a per-cohort OMOP CDM schema (person, visit_*, condition/drug/
+device/measurement/note/observation/procedure, + CBR extensions).
 
-Exposes ``return_tables(schema_name: str)`` which returns a dynamically
-generated set of table classes bound to the specified schema name.
+Single source of truth for all three layers — each layer calls
+`build_cohort(Base, schema_name, exclude=...)` with its own Base and its own
+set of excluded CBR-extension tables, rather than re-declaring the whole CDM.
+
+`exclude` may drop any of: 'red_measurement', 'red_observation',
+'cmp_participants', 'IdentifierError', 'SourceLog'. These five are mutually
+independent (nothing else in the CDM FKs into them), so any subset can be
+dropped safely — unlike the shared-schema reference tables.
 """
-
-from typing import Optional, Literal
+from typing import Optional
 import datetime
 import decimal
 
@@ -12,283 +18,12 @@ from sqlalchemy import (
     BigInteger, Column, Date, DateTime, ForeignKeyConstraint, Index, Integer,
     Numeric, PrimaryKeyConstraint, String, Table, Text, UniqueConstraint, SmallInteger, Boolean, text
 )
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, registry
 
-class ReturnedTables:
-    def __init__(self, metadata, classes):
-        self.metadata = metadata
-        for k, v in classes.items():
-            setattr(self, k, v)
-
-class Base(DeclarativeBase):
-    pass
-
-def shared_tables() -> ReturnedTables:
-    t_concept = Table(
-        'concept', Base.metadata,
-        Column('concept_id', Integer, nullable=False),
-        Column('concept_name', String(255), nullable=False),
-        Column('domain_id', String(20), nullable=False),
-        Column('vocabulary_id', String(20), nullable=False),
-        Column('concept_class_id', String(20), nullable=False),
-        Column('concept_code', String(50), nullable=False),
-        Column('valid_start_date', Date, nullable=False),
-        Column('valid_end_date', Date, nullable=False),
-        Column('standard_concept', String(1)),
-        Column('invalid_reason', String(1)),
-        schema='shared'
-    )
+from src.database.common.base_types import ReturnedTables
 
 
-    t_concept_class = Table(
-        'concept_class', Base.metadata,
-        Column('concept_class_id', String(20), nullable=False),
-        Column('concept_class_name', String(255), nullable=False),
-        Column('concept_class_concept_id', Integer, nullable=False),
-        schema='shared'
-    )
-
-
-    t_domain = Table(
-        'domain', Base.metadata,
-        Column('domain_id', String(20), nullable=False),
-        Column('domain_name', String(255), nullable=False),
-        Column('domain_concept_id', Integer, nullable=False),
-        schema='shared'
-    )
-
-
-    t_vocabulary = Table(
-        'vocabulary', Base.metadata,
-        Column('vocabulary_id', String(20), nullable=False),
-        Column('vocabulary_name', String(255), nullable=False),
-        Column('vocabulary_concept_id', Integer, nullable=False),
-        Column('vocabulary_reference', String(255)),
-        Column('vocabulary_version', String(255)),
-        schema='shared'
-    )
-
-
-    t_relationship = Table(
-        'relationship', Base.metadata,
-        Column('relationship_id', String(20), nullable=False),
-        Column('relationship_name', String(255), nullable=False),
-        Column('is_hierarchical', String(1), nullable=False),
-        Column('defines_ancestry', String(1), nullable=False),
-        Column('reverse_relationship_id', String(20), nullable=False),
-        Column('relationship_concept_id', Integer, nullable=False),
-        schema='shared'
-    )
-
-
-    t_concept_ancestor = Table(
-        'concept_ancestor', Base.metadata,
-        Column('ancestor_concept_id', Integer, nullable=False),
-        Column('descendant_concept_id', Integer, nullable=False),
-        Column('min_levels_of_separation', Integer, nullable=False),
-        Column('max_levels_of_separation', Integer, nullable=False),
-        schema='shared'
-    )
-
-
-    t_concept_synonym = Table(
-        'concept_synonym', Base.metadata,
-        Column('concept_id', Integer, nullable=False),
-        Column('concept_synonym_name', String(1000), nullable=False),
-        Column('language_concept_id', Integer, nullable=False),
-        schema='shared'
-    )
-
-
-    t_drug_strength = Table(
-        'drug_strength', Base.metadata,
-        Column('drug_concept_id', Integer, nullable=False),
-        Column('ingredient_concept_id', Integer, nullable=False),
-        Column('amount_value', Numeric),
-        Column('amount_unit_concept_id', Integer),
-        Column('numerator_value', Numeric),
-        Column('numerator_unit_concept_id', Integer),
-        Column('denominator_value', Numeric),
-        Column('denominator_unit_concept_id', Integer),
-        Column('box_size', Integer),
-        Column('valid_start_date', Date, nullable=False),
-        Column('valid_end_date', Date, nullable=False),
-        Column('invalid_reason', String(1)),
-        schema='shared'
-    )
-
-
-    t_concept_relationship = Table(
-        'concept_relationship', Base.metadata,
-        Column('concept_id_1', Integer, nullable=False),
-        Column('concept_id_2', Integer, nullable=False),
-        Column('relationship_id', String(20), nullable=False),
-        Column('valid_start_date', Date, nullable=False),
-        Column('valid_end_date', Date, nullable=False),
-        Column('invalid_reason', String(1)),
-        schema='shared'
-    )
-
-
-    class LocalConcept(Base):
-        __tablename__ = 'local_concept'
-        __table_args__ = (
-            PrimaryKeyConstraint('id'),
-            {'schema': 'shared'}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        cohort: Mapped[Optional[int]] = mapped_column(Integer)
-        dataset: Mapped[Optional[str]] = mapped_column(String)
-        subgroup: Mapped[Optional[str]] = mapped_column(String)
-        source_field_name: Mapped[Optional[str]] = mapped_column(String)
-        source_field_description: Mapped[Optional[str]] = mapped_column(String)
-        source_field_dtype: Mapped[Optional[str]] = mapped_column(String)
-        source_field_range = mapped_column(JSONB)
-        source_field_response = mapped_column(JSONB)
-        concept_id: Mapped[Optional[int]] = mapped_column(Integer)
-        table: Mapped[Optional[str]] = mapped_column(String)
-        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
-        created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
-            DateTime, server_default=text("NOW()")
-        )
-        updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(
-            DateTime, server_default=text("NOW()")
-        )
-
-    class CohortMapping(Base):
-        """Maps a cohort_id to its human-readable name and schema."""
-        __tablename__ = 'cohort_mappings'
-        __table_args__ = (
-            PrimaryKeyConstraint('cohort_id'),
-            {'schema': 'shared'}
-        )
-
-        cohort_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        cohort_name: Mapped[str] = mapped_column(String(255), nullable=False)
-        schema_name: Mapped[str] = mapped_column(String(63), nullable=False)
-        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
-        created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
-            DateTime, server_default=text("NOW()")
-        )
-
-    class Assessment(Base):
-        """Assessment instrument names (e.g. MoCA, MMSE)."""
-        __tablename__ = 'assessments'
-        __table_args__ = (
-            PrimaryKeyConstraint('id'),
-            {'schema': 'shared'}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        name: Mapped[str] = mapped_column(String(255), nullable=False)
-        description: Mapped[Optional[str]] = mapped_column(Text)
-        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
-
-
-    class Machine(Base):
-        """Data-collection machine names."""
-        __tablename__ = 'machines'
-        __table_args__ = (
-            PrimaryKeyConstraint('id'),
-            {'schema': 'shared'}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        name: Mapped[str] = mapped_column(String(255), nullable=False)
-        description: Mapped[Optional[str]] = mapped_column(Text)
-        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
-
-
-    class Instrument(Base):
-        """Junction: assessment x machine x cohort -> source file contract."""
-        __tablename__ = 'instruments'
-        __table_args__ = (
-            ForeignKeyConstraint(['assessment_id'], ['shared.assessments.id']),
-            ForeignKeyConstraint(['machine_id'], ['shared.machines.id']),
-            ForeignKeyConstraint(['cohort_id'], ['shared.cohort_mappings.cohort_id']),
-            PrimaryKeyConstraint('id'),
-            {'schema': 'shared'}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        assessment_id: Mapped[int] = mapped_column(Integer, nullable=False)
-        machine_id: Mapped[int] = mapped_column(Integer, nullable=False)
-        cohort_id: Mapped[int] = mapped_column(Integer, nullable=False)
-        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
-
-
-    class Endpoint(Base):
-        """API endpoint names registered for the BRAID portal."""
-        __tablename__ = 'endpoints'
-        __table_args__ = (
-            PrimaryKeyConstraint('id'),
-            {'schema': 'shared'}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        name: Mapped[str] = mapped_column(String(255), nullable=False)
-        path: Mapped[str] = mapped_column(String(500), nullable=False)
-        method: Mapped[str] = mapped_column(String(10), nullable=False)
-        description: Mapped[Optional[str]] = mapped_column(Text)
-        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
-
-
-    class Api(Base):
-        """Endpoint relationships: groups endpoints into logical APIs."""
-        __tablename__ = 'apis'
-        __table_args__ = (
-            ForeignKeyConstraint(['endpoint_id'], ['shared.endpoints.id']),
-            PrimaryKeyConstraint('id'),
-            {'schema': 'shared'}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        name: Mapped[str] = mapped_column(String(255), nullable=False)
-        endpoint_id: Mapped[int] = mapped_column(Integer, nullable=False)
-        description: Mapped[Optional[str]] = mapped_column(Text)
-        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
-
-    class Places(Base):
-        __tablename__ = 'places'
-        __table_args__ = (
-            PrimaryKeyConstraint('location_id'),
-            {'schema': 'shared'}
-        )
-
-        location_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        city: Mapped[Optional[str]] = mapped_column(String(50))
-        state: Mapped[Optional[str]] = mapped_column(String(2))
-        zip: Mapped[Optional[str]] = mapped_column(String(9))
-        county: Mapped[Optional[str]] = mapped_column(String(20))
-        latitude: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
-        longitude: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
-
-    classes = {
-            'concept': t_concept,
-            'concept_class': t_concept_class,
-            'domain': t_domain,
-            'vocabulary': t_vocabulary,
-            'relationship': t_relationship,
-            'concept_ancestor': t_concept_ancestor,
-            'concept_synonym': t_concept_synonym,
-            'drug_strength': t_drug_strength,
-            'concept_relationship': t_concept_relationship,
-            'LocalConcept': LocalConcept,
-            'CohortMapping': CohortMapping,
-            'Assessment': Assessment,
-            'Machine': Machine,
-            'Instrument': Instrument,
-            'Endpoint': Endpoint,
-            'Api': Api,
-            'Places': Places,
-    }
-
-
-    return ReturnedTables(Base.metadata, classes)
-
-def cohort_tables(schema_name: str):
+def build_cohort(Base, schema_name: str, exclude: frozenset = frozenset()) -> ReturnedTables:
     # Each call declares classes with the same names (Person, CareSite, ...)
     # for a different schema. A shared declarative registry only keeps the
     # last-declared class per name for string-based relationship() lookups
@@ -1235,211 +970,141 @@ def cohort_tables(schema_name: str):
         visit_detail: Mapped[Optional['VisitDetail']] = relationship('VisitDetail', back_populates='procedure_occurrence')
         visit_occurrence: Mapped[Optional['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='procedure_occurrence')
 
-    class RedMeasurement(LocalBase):
-        __tablename__ = 'red_measurement'
-        __table_args__ = (
-            ForeignKeyConstraint(['measurement_id'], [f'{schema_name}.measurement.measurement_id'], ondelete='CASCADE', name='red_measurement_measurement_id_fkey'),
-            PrimaryKeyConstraint('measurement_id', name='red_measurement_pkey'),
-            {'schema': schema_name}
-        )
-
-        measurement_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        appointment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-        field_name: Mapped[str] = mapped_column(Text, nullable=False)
-        created_by: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-        created_on: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('now()'))
-        status: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("'0'::smallint"))
-        original_value: Mapped[Optional[str]] = mapped_column(Text)
-        original_error: Mapped[Optional[str]] = mapped_column(Text)
-        new_value: Mapped[Optional[str]] = mapped_column(Text)
-        new_error: Mapped[Optional[str]] = mapped_column(Text)
-        updated_by: Mapped[Optional[int]] = mapped_column(SmallInteger)
-        updated_on: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
-
-
-    class RedObservation(LocalBase):
-        __tablename__ = 'red_observation'
-        __table_args__ = (
-            ForeignKeyConstraint(['observation_id'], [f'{schema_name}.observation.observation_id'], ondelete='CASCADE', name='red_observation_observation_id_fkey'),
-            PrimaryKeyConstraint('observation_id', name='red_observation_pkey'),
-            {'schema': schema_name}
-        )
-
-        observation_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        appointment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
-        field_name: Mapped[str] = mapped_column(Text, nullable=False)
-        created_by: Mapped[int] = mapped_column(SmallInteger, nullable=False)
-        created_on: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('now()'))
-        status: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("'0'::smallint"))
-        original_value: Mapped[Optional[str]] = mapped_column(Text)
-        original_error: Mapped[Optional[str]] = mapped_column(Text)
-        new_value: Mapped[Optional[str]] = mapped_column(Text)
-        new_error: Mapped[Optional[str]] = mapped_column(Text)
-        updated_by: Mapped[Optional[int]] = mapped_column(SmallInteger)
-        updated_on: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
-
-    t_cmp_participants = Table(
-        'cmp_participants', Base.metadata,
-        Column('barcode', Text, nullable=False),
-        Column('subject_id', Text, nullable=False),
-        UniqueConstraint('barcode', 'subject_id', name='uq_cmp_participants_barcode_subject_id'),
-        schema=schema_name
-    )
-
-    class IdentifierError(LocalBase):
-        __tablename__ = 'identifier_errors'
-        __table_args__ = (
-            PrimaryKeyConstraint('id'),
-            {'schema': schema_name}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        subject_id: Mapped[Optional[str]] = mapped_column(String(50))
-        data: Mapped[Optional[str]] = mapped_column(Text)
-        instruments_source_id: Mapped[Optional[str]] = mapped_column(String(255))
-        created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
-        created_by: Mapped[Optional[str]] = mapped_column(String(255))
-        updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
-        updated_by: Mapped[Optional[str]] = mapped_column(String(255))
-        status: Mapped[Optional[str]] = mapped_column(String(50))
-        cohort: Mapped[Optional[int]] = mapped_column(Integer)
-
-    class SourceLog(LocalBase):
-        __tablename__ = 'source_logs'
-        __table_args__ = (
-            ForeignKeyConstraint(['instrument_cat'], ['shared.instruments.id']),
-            ForeignKeyConstraint(['api_catalogue_id'], ['shared.apis.id']),
-            PrimaryKeyConstraint('id'),
-            {'schema': schema_name}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        instrument_cat: Mapped[Optional[int]] = mapped_column(Integer)
-        api_catalogue_id: Mapped[Optional[int]] = mapped_column(Integer)
-        source: Mapped[Optional[str]] = mapped_column(String(255))
-        file_format: Mapped[Optional[str]] = mapped_column(String(50))
-        created_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
-        modified_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
-        subjects_in_file: Mapped[Optional[int]] = mapped_column(Integer)
-        subjects_passed: Mapped[Optional[int]] = mapped_column(Integer)
-        subjects_failed: Mapped[Optional[int]] = mapped_column(Integer)
-        fdc_id: Mapped[Optional[str]] = mapped_column(String(255))
-        is_instrumentals: Mapped[Optional[bool]] = mapped_column(Boolean)
-
     classes = {
-            'Cohort': Cohort,
-            'cdm_source': t_cdm_source,
-            'cohort_definition': t_cohort_definition,
-            'Cost': Cost,
-            'fact_relationship': t_fact_relationship,
-            'Location': Location,
-            'Metadata': Metadata,
-            'NoteNlp': NoteNlp,
-            'source_to_concept_map': t_source_to_concept_map,
-            'CareSite': CareSite,
-            'Provider': Provider,
-            'Person': Person,
-            'ConditionEra': ConditionEra,
-            'death': t_death,
-            'DoseEra': DoseEra,
-            'DrugEra': DrugEra,
-            'Episode': Episode,
-            'ObservationPeriod': ObservationPeriod,
-            'PayerPlanPeriod': PayerPlanPeriod,
-            'Specimen': Specimen,
-            'VisitOccurrence': VisitOccurrence,
-            'episode_event': t_episode_event,
-            'VisitDetail': VisitDetail,
-            'ConditionOccurrence': ConditionOccurrence,
-            'DeviceExposure': DeviceExposure,
-            'DrugExposure': DrugExposure,
-            'Measurement': Measurement,
-            'Note': Note,
-            'Observation': Observation,
-            'ProcedureOccurrence': ProcedureOccurrence,
-            'red_measurement': RedMeasurement,
-            'red_observation': RedObservation,
-            'cmp_participants': t_cmp_participants,
-            'IdentifierError': IdentifierError,
-            'SourceLog': SourceLog,
+        'Cohort': Cohort,
+        'cdm_source': t_cdm_source,
+        'cohort_definition': t_cohort_definition,
+        'Cost': Cost,
+        'fact_relationship': t_fact_relationship,
+        'Location': Location,
+        'Metadata': Metadata,
+        'NoteNlp': NoteNlp,
+        'source_to_concept_map': t_source_to_concept_map,
+        'CareSite': CareSite,
+        'Provider': Provider,
+        'Person': Person,
+        'ConditionEra': ConditionEra,
+        'death': t_death,
+        'DoseEra': DoseEra,
+        'DrugEra': DrugEra,
+        'Episode': Episode,
+        'ObservationPeriod': ObservationPeriod,
+        'PayerPlanPeriod': PayerPlanPeriod,
+        'Specimen': Specimen,
+        'VisitOccurrence': VisitOccurrence,
+        'episode_event': t_episode_event,
+        'VisitDetail': VisitDetail,
+        'ConditionOccurrence': ConditionOccurrence,
+        'DeviceExposure': DeviceExposure,
+        'DrugExposure': DrugExposure,
+        'Measurement': Measurement,
+        'Note': Note,
+        'Observation': Observation,
+        'ProcedureOccurrence': ProcedureOccurrence,
     }
 
-    return ReturnedTables(Base.metadata, classes)
+    if 'red_measurement' not in exclude:
+        class RedMeasurement(LocalBase):
+            __tablename__ = 'red_measurement'
+            __table_args__ = (
+                ForeignKeyConstraint(['measurement_id'], [f'{schema_name}.measurement.measurement_id'], ondelete='CASCADE', name='red_measurement_measurement_id_fkey'),
+                PrimaryKeyConstraint('measurement_id', name='red_measurement_pkey'),
+                {'schema': schema_name}
+            )
 
-def orphan_tables():
-    class IdentifierErrorOrphan(Base):
-        __tablename__ = 'identifier_errors'
-        __table_args__ = (
-            PrimaryKeyConstraint('id'),
-            {'schema': 'orphan'}
+            measurement_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+            appointment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+            field_name: Mapped[str] = mapped_column(Text, nullable=False)
+            created_by: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+            created_on: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('now()'))
+            status: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("'0'::smallint"))
+            original_value: Mapped[Optional[str]] = mapped_column(Text)
+            original_error: Mapped[Optional[str]] = mapped_column(Text)
+            new_value: Mapped[Optional[str]] = mapped_column(Text)
+            new_error: Mapped[Optional[str]] = mapped_column(Text)
+            updated_by: Mapped[Optional[int]] = mapped_column(SmallInteger)
+            updated_on: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+
+        classes['red_measurement'] = RedMeasurement
+
+    if 'red_observation' not in exclude:
+        class RedObservation(LocalBase):
+            __tablename__ = 'red_observation'
+            __table_args__ = (
+                ForeignKeyConstraint(['observation_id'], [f'{schema_name}.observation.observation_id'], ondelete='CASCADE', name='red_observation_observation_id_fkey'),
+                PrimaryKeyConstraint('observation_id', name='red_observation_pkey'),
+                {'schema': schema_name}
+            )
+
+            observation_id: Mapped[int] = mapped_column(Integer, primary_key=True)
+            appointment_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+            field_name: Mapped[str] = mapped_column(Text, nullable=False)
+            created_by: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+            created_on: Mapped[datetime.datetime] = mapped_column(DateTime, nullable=False, server_default=text('now()'))
+            status: Mapped[int] = mapped_column(SmallInteger, nullable=False, server_default=text("'0'::smallint"))
+            original_value: Mapped[Optional[str]] = mapped_column(Text)
+            original_error: Mapped[Optional[str]] = mapped_column(Text)
+            new_value: Mapped[Optional[str]] = mapped_column(Text)
+            new_error: Mapped[Optional[str]] = mapped_column(Text)
+            updated_by: Mapped[Optional[int]] = mapped_column(SmallInteger)
+            updated_on: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
+
+        classes['red_observation'] = RedObservation
+
+    if 'cmp_participants' not in exclude:
+        t_cmp_participants = Table(
+            'cmp_participants', Base.metadata,
+            Column('barcode', Text, nullable=False),
+            Column('subject_id', Text, nullable=False),
+            UniqueConstraint('barcode', 'subject_id', name='uq_cmp_participants_barcode_subject_id'),
+            schema=schema_name
         )
+        classes['cmp_participants'] = t_cmp_participants
 
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        subject_id: Mapped[Optional[str]] = mapped_column(String(50))
-        data: Mapped[Optional[str]] = mapped_column(Text)
-        instruments_source_id: Mapped[Optional[str]] = mapped_column(String(255))
-        created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
-        created_by: Mapped[Optional[str]] = mapped_column(String(255))
-        updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
-        updated_by: Mapped[Optional[str]] = mapped_column(String(255))
-        status: Mapped[Optional[str]] = mapped_column(String(50))
-        cohort: Mapped[Optional[int]] = mapped_column(Integer)
+    if 'IdentifierError' not in exclude:
+        class IdentifierError(LocalBase):
+            __tablename__ = 'identifier_errors'
+            __table_args__ = (
+                PrimaryKeyConstraint('id'),
+                {'schema': schema_name}
+            )
 
-    class SourceLogOrphan(Base):
-        __tablename__ = 'source_logs'
-        __table_args__ = (
-            ForeignKeyConstraint(['instrument_cat'], ['shared.instruments.id']),
-            ForeignKeyConstraint(['api_catalogue_id'], ['shared.apis.id']),
-            PrimaryKeyConstraint('id'),
-            {'schema': 'orphan'}
-        )
+            id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+            subject_id: Mapped[Optional[str]] = mapped_column(String(50))
+            data: Mapped[Optional[str]] = mapped_column(Text)
+            instruments_source_id: Mapped[Optional[str]] = mapped_column(String(255))
+            created_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
+            created_by: Mapped[Optional[str]] = mapped_column(String(255))
+            updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
+            updated_by: Mapped[Optional[str]] = mapped_column(String(255))
+            status: Mapped[Optional[str]] = mapped_column(String(50))
+            cohort: Mapped[Optional[int]] = mapped_column(Integer)
 
-        id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        instrument_cat: Mapped[Optional[int]] = mapped_column(Integer)
-        api_catalogue_id: Mapped[Optional[int]] = mapped_column(Integer)
-        source: Mapped[Optional[str]] = mapped_column(String(255))
-        file_format: Mapped[Optional[str]] = mapped_column(String(50))
-        created_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
-        modified_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
-        subjects_in_file: Mapped[Optional[int]] = mapped_column(Integer)
-        subjects_passed: Mapped[Optional[int]] = mapped_column(Integer)
-        subjects_failed: Mapped[Optional[int]] = mapped_column(Integer)
-        fdc_id: Mapped[Optional[str]] = mapped_column(String(255))
-        is_instrumentals: Mapped[Optional[bool]] = mapped_column(Boolean)
+        classes['IdentifierError'] = IdentifierError
 
-    classes = {
-            'IdentifierErrorOrphan': IdentifierErrorOrphan,
-            'SourceLogOrphan': SourceLogOrphan
-    }
+    if 'SourceLog' not in exclude:
+        class SourceLog(LocalBase):
+            __tablename__ = 'source_logs'
+            __table_args__ = (
+                ForeignKeyConstraint(['instrument_cat'], ['shared.instruments.id']),
+                ForeignKeyConstraint(['api_catalogue_id'], ['shared.apis.id']),
+                PrimaryKeyConstraint('id'),
+                {'schema': schema_name}
+            )
+
+            id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+            instrument_cat: Mapped[Optional[int]] = mapped_column(Integer)
+            api_catalogue_id: Mapped[Optional[int]] = mapped_column(Integer)
+            source: Mapped[Optional[str]] = mapped_column(String(255))
+            file_format: Mapped[Optional[str]] = mapped_column(String(50))
+            created_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
+            modified_date: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime, server_default=text("NOW()"))
+            subjects_in_file: Mapped[Optional[int]] = mapped_column(Integer)
+            subjects_passed: Mapped[Optional[int]] = mapped_column(Integer)
+            subjects_failed: Mapped[Optional[int]] = mapped_column(Integer)
+            fdc_id: Mapped[Optional[str]] = mapped_column(String(255))
+            is_instrumentals: Mapped[Optional[bool]] = mapped_column(Boolean)
+
+        classes['SourceLog'] = SourceLog
 
     return ReturnedTables(Base.metadata, classes)
-
-_TABLE_CACHE: dict[tuple[str, str | None], "ReturnedTables"] = {}
-
-
-def return_tables(schema_type: Literal['cohort', 'shared', 'orphan'],
-                  schema_name: str=None):
-    """Dispatch to the schema_type-specific table builder, cached per
-    (schema_type, schema_name). Caching matters because SQLAlchemy Table
-    objects can't be redefined on the same MetaData — a second call for an
-    already-built schema (e.g. a module that imports it eagerly, plus a
-    migration that builds it again) must return the existing tables rather
-    than re-declare them.
-    """
-    cache_key = (schema_type, schema_name)
-    if cache_key in _TABLE_CACHE:
-        return _TABLE_CACHE[cache_key]
-
-    if schema_type == 'cohort':
-        if not schema_name:
-            raise ValueError("schema_name is required when schema_type='cohort'")
-        result = cohort_tables(schema_name=schema_name)
-    elif schema_type == 'shared':
-        result = shared_tables()
-    elif schema_type == 'orphan':
-        result = orphan_tables()
-    else:
-        raise ValueError(f"Unsupported schema_type: {schema_type}")
-
-    _TABLE_CACHE[cache_key] = result
-    return result

@@ -1,14 +1,14 @@
 import sys
 from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from dotenv import load_dotenv
 from logging.config import fileConfig
 from sqlalchemy import create_engine, pool, inspect
 from alembic import context
 
-from src.database.tables import Base as SharedBase
-from src.database.tables import return_tables
+from src.database.gold.tables import Base as SharedBase
+from src.database.gold.tables import return_tables
 from config import *
 
 config = context.config
@@ -16,7 +16,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Read the DB URL directly from env to avoid configparser's `%`-interpolation
-DB_URL = os.getenv('BRONZE_PROD_URI')
+DB_URL = os.getenv('GOLD_PROD_URI')
 
 # Always build the shared tables onto SharedBase.metadata, regardless of
 # which migrations actually run this invocation — later revisions (e.g.
