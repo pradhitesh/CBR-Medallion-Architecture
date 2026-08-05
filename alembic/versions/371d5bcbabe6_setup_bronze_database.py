@@ -25,8 +25,6 @@ def upgrade() -> None:
     create_schema(schema_type='orphan')
     create_schema(schema_type='cohort', schema_name='cohort_101_data')
     create_schema(schema_type='cohort', schema_name='cohort_102_data')
-    create_schema(schema_type='cohort', schema_name='cohort_999_data')
-    create_schema(schema_type='cohort', schema_name='cohort_998_data')
 
 
 def downgrade() -> None:
@@ -35,5 +33,3 @@ def downgrade() -> None:
     drop_schema('orphan')
     drop_schema('cohort_101_data')
     drop_schema('cohort_102_data')
-    drop_schema('cohort_998_data')
-    drop_schema('cohort_999_data')
