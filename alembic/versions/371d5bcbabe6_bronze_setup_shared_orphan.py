@@ -23,13 +23,9 @@ def upgrade() -> None:
     """Upgrade schema."""
     create_schema(schema_type='shared')
     create_schema(schema_type='orphan')
-    create_schema(schema_type='cohort', schema_name='cohort_101_data')
-    create_schema(schema_type='cohort', schema_name='cohort_102_data')
 
 
 def downgrade() -> None:
     """Downgrade schema."""
     drop_schema('shared')
     drop_schema('orphan')
-    drop_schema('cohort_101_data')
-    drop_schema('cohort_102_data')

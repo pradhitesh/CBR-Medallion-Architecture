@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from config import *
 
 # Read the DB URL directly from env to avoid configparser's `%`-interpolation
-DB_URL = os.getenv('OMOP_DB_URI')
+DB_URL = os.getenv('BRONZE_PROD_URI')
 
 def get_engine():
     return create_engine(DB_URL)
