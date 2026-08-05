@@ -18,6 +18,13 @@ if config.config_file_name is not None:
 # Read the DB URL directly from env to avoid configparser's `%`-interpolation
 DB_URL = os.getenv('BRONZE_PROD_URI')
 
+# Always build the shared tables onto SharedBase.metadata, regardless of
+# which migrations actually run this invocation — later revisions (e.g.
+# cohort schemas) declare cross-schema FKs to shared.* that must resolve
+# even when 371d5bcbabe6 (which builds them via create_schema) isn't
+# part of this run.
+return_tables(schema_type='shared')
+
 # The target metadata is a list of metadatas
 target_metadata = [SharedBase.metadata]
 TRACKED_SCHEMAS = {'shared'}

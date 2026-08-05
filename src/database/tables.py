@@ -13,7 +13,7 @@ from sqlalchemy import (
     Numeric, PrimaryKeyConstraint, String, Table, Text, UniqueConstraint, SmallInteger, Boolean, text
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, registry
 
 class ReturnedTables:
     def __init__(self, metadata, classes):
@@ -289,7 +289,20 @@ def shared_tables() -> ReturnedTables:
     return ReturnedTables(Base.metadata, classes)
 
 def cohort_tables(schema_name: str):
-    class Cohort(Base):
+    # Each call declares classes with the same names (Person, CareSite, ...)
+    # for a different schema. A shared declarative registry only keeps the
+    # last-declared class per name for string-based relationship() lookups
+    # (SAWarning: "will be replaced in the string-lookup table"), silently
+    # pointing earlier schemas' relationships at the wrong class. Give each
+    # call its own registry, still backed by the shared Base.metadata so
+    # cross-schema FK strings ('shared.concept...') keep resolving.
+    _cohort_registry = registry(metadata=Base.metadata)
+
+    class LocalBase(DeclarativeBase):
+        registry = _cohort_registry
+        metadata = Base.metadata
+
+    class Cohort(LocalBase):
         __tablename__ = 'cohort'
         __table_args__ = (
             PrimaryKeyConstraint('cohort_definition_id'),
@@ -333,7 +346,7 @@ def cohort_tables(schema_name: str):
         schema=schema_name
     )
 
-    class Cost(Base):
+    class Cost(LocalBase):
         __tablename__ = 'cost'
         __table_args__ = (
             ForeignKeyConstraint(['cost_domain_id'], ['shared.domain.domain_id']),
@@ -385,7 +398,7 @@ def cohort_tables(schema_name: str):
         schema=schema_name
     )
 
-    class Location(Base):
+    class Location(LocalBase):
         __tablename__ = 'location'
         __table_args__ = (
             ForeignKeyConstraint(['country_concept_id'], ['shared.concept.concept_id']),
@@ -410,7 +423,7 @@ def cohort_tables(schema_name: str):
         care_site: Mapped[list['CareSite']] = relationship('CareSite', back_populates='location')
         person: Mapped[list['Person']] = relationship('Person', back_populates='location')
 
-    class Metadata(Base):
+    class Metadata(LocalBase):
         __tablename__ = 'metadata'
         __table_args__ = (
             ForeignKeyConstraint(['metadata_concept_id'], ['shared.concept.concept_id']),
@@ -431,7 +444,7 @@ def cohort_tables(schema_name: str):
         metadata_date: Mapped[Optional[datetime.date]] = mapped_column(Date)
         metadata_datetime: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
-    class NoteNlp(Base):
+    class NoteNlp(LocalBase):
         __tablename__ = 'note_nlp'
         __table_args__ = (
             ForeignKeyConstraint(['note_nlp_concept_id'], ['shared.concept.concept_id']),
@@ -479,7 +492,7 @@ def cohort_tables(schema_name: str):
         schema=schema_name
     )
 
-    class CareSite(Base):
+    class CareSite(LocalBase):
         __tablename__ = 'care_site'
         __table_args__ = (
             ForeignKeyConstraint(['location_id'], [f'{schema_name}.location.location_id']),
@@ -502,7 +515,7 @@ def cohort_tables(schema_name: str):
         visit_occurrence: Mapped[list['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='care_site')
         visit_detail: Mapped[list['VisitDetail']] = relationship('VisitDetail', back_populates='care_site')
 
-    class Provider(Base):
+    class Provider(LocalBase):
         __tablename__ = 'provider'
         __table_args__ = (
             ForeignKeyConstraint(['care_site_id'], [f'{schema_name}.care_site.care_site_id']),
@@ -541,7 +554,7 @@ def cohort_tables(schema_name: str):
         observation: Mapped[list['Observation']] = relationship('Observation', back_populates='provider')
         procedure_occurrence: Mapped[list['ProcedureOccurrence']] = relationship('ProcedureOccurrence', back_populates='provider')
 
-    class Person(Base):
+    class Person(LocalBase):
         __tablename__ = 'person'
         __table_args__ = (
             ForeignKeyConstraint(['care_site_id'], [f'{schema_name}.care_site.care_site_id']),
@@ -598,7 +611,7 @@ def cohort_tables(schema_name: str):
         observation: Mapped[list['Observation']] = relationship('Observation', back_populates='person')
         procedure_occurrence: Mapped[list['ProcedureOccurrence']] = relationship('ProcedureOccurrence', back_populates='person')
 
-    class ConditionEra(Base):
+    class ConditionEra(LocalBase):
         __tablename__ = 'condition_era'
         __table_args__ = (
             ForeignKeyConstraint(['condition_concept_id'], ['shared.concept.concept_id']),
@@ -635,7 +648,7 @@ def cohort_tables(schema_name: str):
         schema=schema_name
     )
 
-    class DoseEra(Base):
+    class DoseEra(LocalBase):
         __tablename__ = 'dose_era'
         __table_args__ = (
             ForeignKeyConstraint(['drug_concept_id'], ['shared.concept.concept_id']),
@@ -657,7 +670,7 @@ def cohort_tables(schema_name: str):
 
         person: Mapped['Person'] = relationship('Person', back_populates='dose_era')
 
-    class DrugEra(Base):
+    class DrugEra(LocalBase):
         __tablename__ = 'drug_era'
         __table_args__ = (
             ForeignKeyConstraint(['drug_concept_id'], ['shared.concept.concept_id']),
@@ -678,7 +691,7 @@ def cohort_tables(schema_name: str):
 
         person: Mapped['Person'] = relationship('Person', back_populates='drug_era')
 
-    class Episode(Base):
+    class Episode(LocalBase):
         __tablename__ = 'episode'
         __table_args__ = (
             ForeignKeyConstraint(['episode_concept_id'], ['shared.concept.concept_id']),
@@ -706,7 +719,7 @@ def cohort_tables(schema_name: str):
 
         person: Mapped['Person'] = relationship('Person', back_populates='episode')
 
-    class ObservationPeriod(Base):
+    class ObservationPeriod(LocalBase):
         __tablename__ = 'observation_period'
         __table_args__ = (
             ForeignKeyConstraint(['period_type_concept_id'], ['shared.concept.concept_id']),
@@ -724,7 +737,7 @@ def cohort_tables(schema_name: str):
 
         person: Mapped['Person'] = relationship('Person', back_populates='observation_period')
 
-    class PayerPlanPeriod(Base):
+    class PayerPlanPeriod(LocalBase):
         __tablename__ = 'payer_plan_period'
         __table_args__ = (
             ForeignKeyConstraint(['payer_concept_id'], ['shared.concept.concept_id']),
@@ -761,7 +774,7 @@ def cohort_tables(schema_name: str):
 
         person: Mapped['Person'] = relationship('Person', back_populates='payer_plan_period')
 
-    class Specimen(Base):
+    class Specimen(LocalBase):
         __tablename__ = 'specimen'
         __table_args__ = (
             ForeignKeyConstraint(['anatomic_site_concept_id'], ['shared.concept.concept_id']),
@@ -794,7 +807,7 @@ def cohort_tables(schema_name: str):
 
         person: Mapped['Person'] = relationship('Person', back_populates='specimen')
 
-    class VisitOccurrence(Base):
+    class VisitOccurrence(LocalBase):
         __tablename__ = 'visit_occurrence'
         __table_args__ = (
             ForeignKeyConstraint(['admitted_from_concept_id'], ['shared.concept.concept_id']),
@@ -854,7 +867,7 @@ def cohort_tables(schema_name: str):
         schema=schema_name
     )
 
-    class VisitDetail(Base):
+    class VisitDetail(LocalBase):
         __tablename__ = 'visit_detail'
         __table_args__ = (
             ForeignKeyConstraint(['admitted_from_concept_id'], ['shared.concept.concept_id']),
@@ -911,7 +924,7 @@ def cohort_tables(schema_name: str):
         observation: Mapped[list['Observation']] = relationship('Observation', back_populates='visit_detail')
         procedure_occurrence: Mapped[list['ProcedureOccurrence']] = relationship('ProcedureOccurrence', back_populates='visit_detail')
 
-    class ConditionOccurrence(Base):
+    class ConditionOccurrence(LocalBase):
         __tablename__ = 'condition_occurrence'
         __table_args__ = (
             ForeignKeyConstraint(['condition_concept_id'], ['shared.concept.concept_id']),
@@ -951,7 +964,7 @@ def cohort_tables(schema_name: str):
         visit_detail: Mapped[Optional['VisitDetail']] = relationship('VisitDetail', back_populates='condition_occurrence')
         visit_occurrence: Mapped[Optional['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='condition_occurrence')
 
-    class DeviceExposure(Base):
+    class DeviceExposure(LocalBase):
         __tablename__ = 'device_exposure'
         __table_args__ = (
             ForeignKeyConstraint(['device_concept_id'], ['shared.concept.concept_id']),
@@ -995,7 +1008,7 @@ def cohort_tables(schema_name: str):
         visit_detail: Mapped[Optional['VisitDetail']] = relationship('VisitDetail', back_populates='device_exposure')
         visit_occurrence: Mapped[Optional['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='device_exposure')
 
-    class DrugExposure(Base):
+    class DrugExposure(LocalBase):
         __tablename__ = 'drug_exposure'
         __table_args__ = (
             ForeignKeyConstraint(['drug_concept_id'], ['shared.concept.concept_id']),
@@ -1042,7 +1055,7 @@ def cohort_tables(schema_name: str):
         visit_detail: Mapped[Optional['VisitDetail']] = relationship('VisitDetail', back_populates='drug_exposure')
         visit_occurrence: Mapped[Optional['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='drug_exposure')
 
-    class Measurement(Base):
+    class Measurement(LocalBase):
         __tablename__ = 'measurement'
         __table_args__ = (
             ForeignKeyConstraint(['meas_event_field_concept_id'], ['shared.concept.concept_id']),
@@ -1093,7 +1106,7 @@ def cohort_tables(schema_name: str):
         visit_detail: Mapped[Optional['VisitDetail']] = relationship('VisitDetail', back_populates='measurement')
         visit_occurrence: Mapped[Optional['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='measurement')
 
-    class Note(Base):
+    class Note(LocalBase):
         __tablename__ = 'note'
         __table_args__ = (
             ForeignKeyConstraint(['encoding_concept_id'], ['shared.concept.concept_id']),
@@ -1134,7 +1147,7 @@ def cohort_tables(schema_name: str):
         visit_detail: Mapped[Optional['VisitDetail']] = relationship('VisitDetail', back_populates='note')
         visit_occurrence: Mapped[Optional['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='note')
 
-    class Observation(Base):
+    class Observation(LocalBase):
         __tablename__ = 'observation'
         __table_args__ = (
             ForeignKeyConstraint(['obs_event_field_concept_id'], ['shared.concept.concept_id']),
@@ -1182,7 +1195,7 @@ def cohort_tables(schema_name: str):
         visit_detail: Mapped[Optional['VisitDetail']] = relationship('VisitDetail', back_populates='observation')
         visit_occurrence: Mapped[Optional['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='observation')
 
-    class ProcedureOccurrence(Base):
+    class ProcedureOccurrence(LocalBase):
         __tablename__ = 'procedure_occurrence'
         __table_args__ = (
             ForeignKeyConstraint(['modifier_concept_id'], ['shared.concept.concept_id']),
@@ -1222,7 +1235,7 @@ def cohort_tables(schema_name: str):
         visit_detail: Mapped[Optional['VisitDetail']] = relationship('VisitDetail', back_populates='procedure_occurrence')
         visit_occurrence: Mapped[Optional['VisitOccurrence']] = relationship('VisitOccurrence', back_populates='procedure_occurrence')
 
-    class RedMeasurement(Base):
+    class RedMeasurement(LocalBase):
         __tablename__ = 'red_measurement'
         __table_args__ = (
             ForeignKeyConstraint(['measurement_id'], [f'{schema_name}.measurement.measurement_id'], ondelete='CASCADE', name='red_measurement_measurement_id_fkey'),
@@ -1244,7 +1257,7 @@ def cohort_tables(schema_name: str):
         updated_on: Mapped[Optional[datetime.datetime]] = mapped_column(DateTime)
 
 
-    class RedObservation(Base):
+    class RedObservation(LocalBase):
         __tablename__ = 'red_observation'
         __table_args__ = (
             ForeignKeyConstraint(['observation_id'], [f'{schema_name}.observation.observation_id'], ondelete='CASCADE', name='red_observation_observation_id_fkey'),
@@ -1273,7 +1286,7 @@ def cohort_tables(schema_name: str):
         schema=schema_name
     )
 
-    class IdentifierError(Base):
+    class IdentifierError(LocalBase):
         __tablename__ = 'identifier_errors'
         __table_args__ = (
             PrimaryKeyConstraint('id'),
@@ -1291,7 +1304,7 @@ def cohort_tables(schema_name: str):
         status: Mapped[Optional[str]] = mapped_column(String(50))
         cohort: Mapped[Optional[int]] = mapped_column(Integer)
 
-    class SourceLog(Base):
+    class SourceLog(LocalBase):
         __tablename__ = 'source_logs'
         __table_args__ = (
             ForeignKeyConstraint(['instrument_cat'], ['shared.instruments.id']),
