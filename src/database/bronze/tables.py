@@ -17,7 +17,6 @@ from src.database.common.orphan_builder import build_orphan
 class Base(DeclarativeBase):
     pass
 
-
 _TABLE_CACHE: dict[tuple[str, str | None], ReturnedTables] = {}
 
 
