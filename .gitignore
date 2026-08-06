@@ -12,6 +12,7 @@
 *venv
 *.config
 *.sh
+*.vscode
 
 local
 test
