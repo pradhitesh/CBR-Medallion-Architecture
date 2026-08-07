@@ -18,7 +18,7 @@ from src.database.common.shared_builder import build_shared
 from src.database.common.cohort_builder import build_cohort
 
 COHORT_EXCLUDE = frozenset({'IdentifierError', 'SourceLog'})
-
+SHARED_EXCLUDE = frozenset({'Assessment', 'Machine', 'Instrument', 'Endpoint', 'Api', 'Places'})
 
 class Base(DeclarativeBase):
     pass
@@ -41,7 +41,7 @@ def return_tables(schema_type: Literal['cohort', 'shared'],
             raise ValueError("schema_name is required when schema_type='cohort'")
         result = build_cohort(Base, schema_name=schema_name, exclude=COHORT_EXCLUDE)
     elif schema_type == 'shared':
-        result = build_shared(Base)
+        result = build_shared(Base, exclude=SHARED_EXCLUDE)
     else:
         raise ValueError(f"Unsupported schema_type: {schema_type} (silver has no orphan schema)")
 

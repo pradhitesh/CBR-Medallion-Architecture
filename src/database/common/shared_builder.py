@@ -150,36 +150,22 @@ def build_shared(Base, exclude: frozenset = frozenset()) -> ReturnedTables:
             DateTime, server_default=text("NOW()")
         )
 
-    class OrgMapping(Base):
-        """Maps an org_id to its human-readable name and schema."""
-        __tablename__ = 'org_mappings'
-        __table_args__ = (
-            PrimaryKeyConstraint('id'),
-            {'schema': 'shared'}
-        )
-
-        id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        org_name: Mapped[str] = mapped_column(String(255), nullable=False)
-        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
-        created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
-            DateTime, server_default=text("NOW()")
-        )
-
     class CohortMapping(Base):
         """Maps a cohort_id to its human-readable name and schema."""
         __tablename__ = 'cohort_mappings'
         __table_args__ = (
-            ForeignKeyConstraint(['org_id'], ['shared.org_mappings.id']),
             PrimaryKeyConstraint('id'),
             {'schema': 'shared'}
         )
 
         id: Mapped[int] = mapped_column(Integer, primary_key=True)
-        org_id: Mapped[int] = mapped_column(Integer, nullable=False)
         cohort_name: Mapped[str] = mapped_column(String(255), nullable=False)
-        schema_name: Mapped[str] = mapped_column(String(63), nullable=False)
+        schema_name: Mapped[str] = mapped_column(Integer, nullable=False, unique=True)
         is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
         created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+            DateTime, server_default=text("NOW()")
+        )
+        updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(
             DateTime, server_default=text("NOW()")
         )
 
@@ -191,12 +177,19 @@ def build_shared(Base, exclude: frozenset = frozenset()) -> ReturnedTables:
         )
 
         id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-        city: Mapped[Optional[str]] = mapped_column(String(50))
-        state: Mapped[Optional[str]] = mapped_column(String(2))
-        zip: Mapped[Optional[str]] = mapped_column(String(9))
-        latitude: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
-        longitude: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric)
-        
+        city: Mapped[Optional[str]] = mapped_column(String(50), nullable=False)
+        state: Mapped[Optional[str]] = mapped_column(String(2), nullable=False)
+        zip: Mapped[Optional[str]] = mapped_column(String(9), nullable=False)
+        latitude: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric, nullable=False)
+        longitude: Mapped[Optional[decimal.Decimal]] = mapped_column(Numeric, nullable=False)
+        is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
+        created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+            DateTime, server_default=text("NOW()")
+        )
+        updated_at: Mapped[Optional[datetime.datetime]] = mapped_column(
+            DateTime, server_default=text("NOW()")
+        )
+
     classes = {
         'concept': t_concept,
         'concept_class': t_concept_class,
@@ -208,7 +201,6 @@ def build_shared(Base, exclude: frozenset = frozenset()) -> ReturnedTables:
         'drug_strength': t_drug_strength,
         'concept_relationship': t_concept_relationship,
         'LocalConcept': LocalConcept,
-        'OrgMapping': OrgMapping,
         'CohortMapping': CohortMapping,
         'Places': Places
     }
@@ -223,7 +215,7 @@ def build_shared(Base, exclude: frozenset = frozenset()) -> ReturnedTables:
             )
 
             id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-            name: Mapped[str] = mapped_column(String(255), nullable=False)
+            name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
             description: Mapped[Optional[str]] = mapped_column(Text)
             is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
             created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
@@ -243,7 +235,7 @@ def build_shared(Base, exclude: frozenset = frozenset()) -> ReturnedTables:
             )
 
             id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-            name: Mapped[str] = mapped_column(String(255), nullable=False)
+            name: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
             description: Mapped[Optional[str]] = mapped_column(Text)
             is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
             created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
@@ -261,6 +253,7 @@ def build_shared(Base, exclude: frozenset = frozenset()) -> ReturnedTables:
                 ForeignKeyConstraint(['cohort_id'], ['shared.cohort_mappings.id']),
                 ForeignKeyConstraint(['assessment_id'], ['shared.assessments.id']),
                 ForeignKeyConstraint(['machine_id'], ['shared.machines.id']),
+                ForeignKeyConstraint(['place_id'], ['shared.places.id']),
                 PrimaryKeyConstraint('id'),
                 {'schema': 'shared'}
             )
@@ -269,6 +262,7 @@ def build_shared(Base, exclude: frozenset = frozenset()) -> ReturnedTables:
             cohort_id: Mapped[int] = mapped_column(Integer, nullable=False)
             assessment_id: Mapped[int] = mapped_column(Integer, nullable=False)
             machine_id: Mapped[int] = mapped_column(Integer, nullable=False)
+            place_id: Mapped[int] = mapped_column(Integer, nullable=False)
             is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text('true'))
             created_at: Mapped[Optional[datetime.datetime]] = mapped_column(
                 DateTime, server_default=text("NOW()"))
